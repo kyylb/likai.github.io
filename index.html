@@ -66,40 +66,13 @@
                 /* shine overlay via pseudo-element workaround: use wrapper instead */
             }
 
-            /* Wrapper handles the shine animation */
+            /* Wrapper for canvas */
             #canvas-wrap {
                 float: right;
                 position: relative;
                 width: 449px;
                 height: 600px;
                 overflow: hidden;
-            }
-            #canvas-wrap::after {
-                content: "";
-                position: absolute;
-                top: 0;
-                left: -100%;
-                width: 60%;
-                height: 100%;
-                background: linear-gradient(
-                    120deg,
-                    rgba(255, 255, 255, 0) 0%,
-                    rgba(255, 255, 255, 0.55) 50%,
-                    rgba(255, 255, 255, 0) 100%
-                );
-                transform: skewX(-15deg);
-                animation: shine 0.7s ease-out 0.3s 1 forwards;
-                pointer-events: none;
-            }
-            @keyframes shine {
-                0% {
-                    left: -100%;
-                    opacity: 1;
-                }
-                100% {
-                    left: 160%;
-                    opacity: 0;
-                }
             }
         </style>
     </head>
@@ -229,7 +202,31 @@
                 let mouseX = -9999,
                     mouseY = -9999;
 
-                function draw() {
+                // Intro sweep state
+                const INTRO_DURATION = 1200; // ms total sweep
+                const INTRO_EDGE = 120; // px width of the dissolve edge
+                const INTRO_MAX_PIX = 28; // block size at the "unresolved" front
+                let introStart = null;
+                let introComplete = false;
+
+                function getIntroBlockSize(x, elapsed) {
+                    // sweepX is the x-position that has fully resolved
+                    const sweepX =
+                        (elapsed / INTRO_DURATION) * (W + INTRO_EDGE) -
+                        INTRO_EDGE;
+                    const dist = x - sweepX;
+                    if (dist <= 0) return 1; // already resolved
+                    if (dist >= INTRO_EDGE) return INTRO_MAX_PIX; // not yet touched
+                    // in the dissolve band: interpolate with some randomness per column
+                    const t = dist / INTRO_EDGE;
+                    return Math.max(1, Math.round(t * INTRO_MAX_PIX));
+                }
+
+                function draw(timestamp) {
+                    if (!introStart) introStart = timestamp;
+                    const elapsed = timestamp - introStart;
+                    if (elapsed >= INTRO_DURATION) introComplete = true;
+
                     const rect = canvas.getBoundingClientRect();
                     const localX = mouseX - rect.left;
                     const localY = mouseY - rect.top;
@@ -244,12 +241,20 @@
                         while (y < H) {
                             const cx = x + STEP / 2;
                             const cy = y + STEP / 2;
+
+                            // Mouse hover pixelation
                             const dist = Math.hypot(cx - localX, cy - localY);
                             const t = Math.max(0, 1 - dist / RADIUS);
-                            const bs = Math.max(
+                            let bs = Math.max(
                                 STEP,
                                 Math.round(STEP + t * (MAX_PIXEL - STEP)),
                             );
+
+                            // Intro sweep overrides during animation
+                            if (!introComplete) {
+                                const introBS = getIntroBlockSize(x, elapsed);
+                                bs = Math.max(bs, introBS);
+                            }
 
                             const sx = Math.min(W - 1, Math.floor(cx));
                             const sy = Math.min(H - 1, Math.floor(cy));
@@ -272,7 +277,7 @@
                 }
 
                 img.onload = function () {
-                    draw();
+                    requestAnimationFrame(draw);
                 };
 
                 document.addEventListener("mousemove", function (e) {
